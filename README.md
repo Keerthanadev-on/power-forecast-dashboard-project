@@ -105,7 +105,7 @@ The project utilizes the **SARIMA (Seasonal AutoRegressive Integrated Moving Ave
 
 ## 🔗 Live Demo
 
-[Streamlit Deployment Link]
+https://power-forecast-dashboard-project-4rypzmkappce6csh59yrdwd.streamlit.app/
 
 ---
 
