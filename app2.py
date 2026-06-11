@@ -203,7 +203,7 @@ with tab1:
             future_index = pd.date_range(
                 state_df["Dates"].max() + pd.offsets.MonthEnd(1),
                 periods=forecast_years * 12,
-                freq="M"
+                freq="ME"
             )
             forecast = fit.forecast(len(future_index))
         except Exception:
@@ -211,7 +211,7 @@ with tab1:
             future_index = pd.date_range(
                 state_df["Dates"].max() + pd.offsets.MonthEnd(1),
                 periods=forecast_years * 12,
-                freq="M"
+                freq="ME"
             )
             forecast = pd.Series(last, index=future_index)
         ax.plot(future_index, forecast, linestyle="--", label="Forecast")
@@ -435,7 +435,7 @@ with tab5:
             future_index = pd.date_range(
                 state_df["Dates"].max() + pd.offsets.MonthEnd(1),
                 periods=forecast_years * 12,
-                freq="M"
+                freq="ME"
             )
             forecast = fit.forecast(len(future_index))
 
@@ -458,7 +458,7 @@ with tab5:
             future_index = pd.date_range(
                 state_df["Dates"].max() + pd.offsets.MonthEnd(1),
                 periods=forecast_years * 12,
-                freq="M"
+                freq="ME"
             )
             forecast = pd.Series(last, index=future_index)
             mape = None
@@ -466,7 +466,7 @@ with tab5:
 
     else:
         # Not enough data
-        future_index = pd.date_range(pd.Timestamp.today(), periods=forecast_years * 12, freq="M")
+        future_index = pd.date_range(pd.Timestamp.today(), periods=forecast_years * 12, freq="ME")
         forecast = pd.Series(0, index=future_index)
         mape = None
         accuracy_score = None
