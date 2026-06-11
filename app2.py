@@ -42,7 +42,7 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     # Build Dates column
     dates_raw = df[date_col]
 
-    if pd.api.types.is_numeric_dtype(dates_raw) and "year" in date_col.lower():
+    if pd.api.types.is_numeric_dtype(dates_raw.dtype) and "year" in date_col.lower():
         # Treat as YEAR
         dates = pd.to_datetime(dates_raw.astype(int).astype(str) + "-01-01", errors="coerce")
     else:
@@ -68,7 +68,7 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     # 3) Detect numeric column (for "Usage")
     numeric_cols = [
         c for c in df.columns
-        if c not in ["Dates", date_col, cat_col] and np.issubdtype(df[c].dtype, np.number)
+        if c not in ["Dates", date_col, cat_col] and pd.api.types.is_numeric_dtype(df[c].dtype)
     ]
 
     # If no numeric dtype, try converting something
