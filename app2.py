@@ -26,6 +26,21 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or len(df.columns) < 2:
         raise ValueError("Dataset must have at least 2 columns with data.")
 
+    # ── Shortcut: already in standard format ──────────────────────────────
+    std_cols = {c.lower() for c in df.columns}
+    if {"dates", "states", "usage"}.issubset(std_cols):
+        col_map = {c.lower(): c for c in df.columns}
+        out = pd.DataFrame({
+            "States": df[col_map["states"]].astype(str),
+            "Dates":  pd.to_datetime(df[col_map["dates"]], errors="coerce"),
+            "Usage":  pd.to_numeric(df[col_map["usage"]], errors="coerce"),
+        })
+        out = out.dropna(subset=["Dates", "Usage"])
+        if out.empty:
+            raise ValueError("After cleaning, no valid (Dates, Usage) rows remain.")
+        return out
+    # ──────────────────────────────────────────────────────────────────────
+
     lower_map = {c.lower(): c for c in df.columns}
 
     # 1) Detect date-like column
@@ -36,42 +51,32 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
             date_col = original
             break
     if date_col is None:
-        # fallback: first column
         date_col = df.columns[0]
 
-    # Build Dates column
     dates_raw = df[date_col]
-
     if pd.api.types.is_numeric_dtype(dates_raw.dtype) and "year" in date_col.lower():
-        # Treat as YEAR
         dates = pd.to_datetime(dates_raw.astype(int).astype(str) + "-01-01", errors="coerce")
     else:
         dates = pd.to_datetime(dates_raw, errors="coerce")
-
     df["Dates"] = dates
 
-    # 2) Detect category column (for "States")
+    # 2) Detect category column
     cat_col = None
     cat_keywords = ["state", "region", "category", "sector", "name", "type", "area"]
     for key, original in lower_map.items():
         if any(k in key for k in cat_keywords) and original != date_col:
             cat_col = original
             break
-
     if cat_col is None:
-        # fallback: first non-date column
         possible = [c for c in df.columns if c not in [date_col, "Dates"]]
-        if not possible:
-            possible = [date_col]
-        cat_col = possible[0]
+        cat_col = possible[0] if possible else date_col
 
-    # 3) Detect numeric column (for "Usage")
+    # 3) Detect numeric column
     numeric_cols = [
         c for c in df.columns
-        if c not in ["Dates", date_col, cat_col] and pd.api.types.is_numeric_dtype(df[c].dtype)
+        if c not in ["Dates", date_col, cat_col]
+        and pd.api.types.is_numeric_dtype(df[c].dtype)
     ]
-
-    # If no numeric dtype, try converting something
     if not numeric_cols:
         for c in df.columns:
             if c in ["Dates", date_col, cat_col]:
@@ -81,18 +86,15 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
                 df[c] = maybe
                 numeric_cols.append(c)
                 break
-
     if not numeric_cols:
         raise ValueError("Could not find any numeric column to use as 'Usage'.")
 
-    usage_col = numeric_cols[-1]  # last numeric col
-
+    usage_col = numeric_cols[-1]
     out = pd.DataFrame({
         "States": df[cat_col].astype(str),
-        "Dates": df["Dates"],
-        "Usage": pd.to_numeric(df[usage_col], errors="coerce")
+        "Dates":  df["Dates"],
+        "Usage":  pd.to_numeric(df[usage_col], errors="coerce"),
     })
-
     out = out.dropna(subset=["Dates", "Usage"])
     if out.empty:
         raise ValueError("After cleaning, no valid (Dates, Usage) rows remain.")
@@ -195,18 +197,27 @@ with tab1:
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(state_df["Dates"], state_df["Usage"], label="Historical", linewidth=2)
 
-    # Forecast using Holt-Winters where possible
+    # Resample to monthly for forecasting (handles daily/weekly/monthly data)
     if len(state_df) >= 2:
         try:
-            model = ExponentialSmoothing(state_df["Usage"], trend="add", seasonal=None)
-            fit = model.fit()
-            future_index = pd.date_range(
-                state_df["Dates"].max() + pd.offsets.MonthEnd(1),
-                periods=forecast_years * 12,
-                freq="ME"
+            monthly = (
+                state_df.set_index("Dates")["Usage"]
+                .resample("ME")
+                .mean()
+                .dropna()
             )
-            forecast = fit.forecast(len(future_index))
-        except Exception:
+            if len(monthly) >= 2:
+                model = ExponentialSmoothing(monthly, trend="add", seasonal=None)
+                fit = model.fit()
+                future_index = pd.date_range(
+                    monthly.index.max() + pd.offsets.MonthEnd(1),
+                    periods=forecast_years * 12,
+                    freq="ME"
+                )
+                forecast = fit.forecast(len(future_index))
+            else:
+                raise ValueError("Not enough monthly points")
+        except Exception as e:
             last = state_df["Usage"].iloc[-1]
             future_index = pd.date_range(
                 state_df["Dates"].max() + pd.offsets.MonthEnd(1),
@@ -214,7 +225,7 @@ with tab1:
                 freq="ME"
             )
             forecast = pd.Series(last, index=future_index)
-        ax.plot(future_index, forecast, linestyle="--", label="Forecast")
+        ax.plot(future_index, forecast, linestyle="--", color="orange", label="Forecast")
     else:
         st.info("Not enough data points to build a proper forecast. Showing only historical.")
 
@@ -428,27 +439,34 @@ with tab5:
     # -----------------------------
     if len(state_df) >= 2:
         try:
-            model = ExponentialSmoothing(state_df["Usage"], trend="add", seasonal=None)
-            fit = model.fit()
+            # Resample to monthly averages so ExponentialSmoothing gets a proper freq index
+            monthly = (
+                state_df.set_index("Dates")["Usage"]
+                .resample("ME")
+                .mean()
+                .dropna()
+            )
+            if len(monthly) >= 2:
+                model = ExponentialSmoothing(monthly, trend="add", seasonal=None)
+                fit = model.fit()
+            else:
+                raise ValueError("Not enough monthly points for model")
 
             # Forecast future values
             future_index = pd.date_range(
-                state_df["Dates"].max() + pd.offsets.MonthEnd(1),
+                monthly.index.max() + pd.offsets.MonthEnd(1),
                 periods=forecast_years * 12,
                 freq="ME"
             )
             forecast = fit.forecast(len(future_index))
 
-            # -----------------------------
             # Calculate Accuracy (MAPE + Accuracy Score)
-            # -----------------------------
             try:
                 fitted_vals = fit.fittedvalues
-                real_vals = state_df["Usage"].iloc[-len(fitted_vals):]
-
-                mape = np.mean(np.abs((real_vals - fitted_vals) / real_vals)) * 100
-                accuracy_score = 100 - mape
-            except:
+                real_vals = monthly.iloc[-len(fitted_vals):]
+                mape = np.mean(np.abs((real_vals - fitted_vals) / real_vals.replace(0, np.nan))) * 100
+                accuracy_score = max(0.0, 100 - mape)
+            except Exception:
                 mape = None
                 accuracy_score = None
 
