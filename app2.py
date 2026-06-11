@@ -42,7 +42,7 @@ def normalize_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     # Build Dates column
     dates_raw = df[date_col]
 
-    if np.issubdtype(dates_raw.dtype, np.number) and "year" in date_col.lower():
+    if pd.api.types.is_numeric_dtype(dates_raw) and "year" in date_col.lower():
         # Treat as YEAR
         dates = pd.to_datetime(dates_raw.astype(int).astype(str) + "-01-01", errors="coerce")
     else:
